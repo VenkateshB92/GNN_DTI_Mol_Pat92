@@ -63,144 +63,156 @@ def set_labels(x):
     label_dict = {i: value for i, value in enumerate(labels)}
     return label_dict
         
-def draw_graph(data, explanation, original_filename, explainable_filename, filtered_filename):
-    # Construct the graph from edge_index
+def draw_graph(data, explanation, word, word1, word_filtered):
     edges = []
     for i in range(len(data.edge_index[0])):
         edges.append([data.edge_index[0][i].item(), data.edge_index[1][i].item()])
     g = nx.Graph(edges)
 
-    # Extract node_mask and edge_mask values
     node_mask = explanation.node_mask.squeeze().tolist()
+    node_mask_values = {i: value for i, value in enumerate(node_mask)}
+    nx.set_node_attributes(g, node_mask_values, 'value')
+
     edge_values = explanation.edge_mask.numpy()
-
-    print(f"Node Mask: {node_mask}")
-    print(f"Edge Mask: {edge_values}")
-
-    # Calculate average values
-    node_avg = np.mean(node_mask)
-    edge_avg = np.mean(edge_values)
-    print(f"Node Mask Average: {node_avg}")
-    print(f"Edge Mask Average: {edge_avg}")
-
-    # Assign node mask values as node attributes
-    nx.set_node_attributes(g, {i: value for i, value in enumerate(node_mask)}, 'value')
-
-    # Assign edge mask values as edge weights
     for i, (u, v) in enumerate(g.edges()):
         g[u][v]['weight'] = edge_values[i]
 
-    # Assign labels to nodes
     labels = set_labels(data.x)
+    node_values = np.array([data['value'] for _, data in g.nodes(data=True)])
 
-    # Filter nodes and edges for the explainable subgraph
-    filtered_nodes = [node for node, value in enumerate(node_mask) if value >= node_avg]
-    filtered_edges = [(u, v) for u, v in g.edges() if g[u][v]['weight'] >= edge_avg]
-
-        # Create filtered subgraph
-    g_filtered = nx.Graph()
-    g_filtered.add_nodes_from(filtered_nodes)
-    g_filtered.add_edges_from(filtered_edges)
-
-    # Prepare color maps for visualization
+    
     node_norm = plt.Normalize(vmin=0, vmax=1)
     edge_norm = plt.Normalize(vmin=0, vmax=1)
 
     node_cmap = plt.cm.Blues
     edge_cmap = plt.cm.Reds
 
-    # Node and edge colors for filtered subgraph
-    node_colors_filtered = [node_cmap(node_norm(node_mask[node])) for node in filtered_nodes]
-    edge_colors_filtered = [edge_cmap(edge_norm(g[u][v]['weight'])) for u, v in filtered_edges]
+    node_colors = [node_cmap(node_norm(value)) for value in node_values]
+    edge_colors = [edge_cmap(edge_norm(weight)) for weight in edge_values]
 
-    node_values = np.array([data['value'] for _, data in g.nodes(data=True)])
-
-    node_colors_original = [node_cmap(node_norm(value)) for value in node_values]
-    # Reassign edge weights for significant edges
-    #edge_values = {tuple(edges[i]): edge_mask[i] for i in g.edges() if edges[i][0] in g and edges[i][1] in g}
-    #nx.set_edge_attributes(g, edge_values, 'weight')
-    #edge_colors_original = [edge_cmap(edge_norm(g[u][v]['weight'])) for u, v in edge_mask] #g.edges()
-    #edge_colors_original = [edge_cmap(edge_norm(g[u][v]['weight'])) for weight in edge_values] #g.edges()
-    edge_colors_original = [edge_cmap(edge_norm(g[u][v]['weight'])) for weight in edge_values] #g.edges()
-
-
-    # Use the same layout for all graphs
     pos = nx.spring_layout(g)
-    #pos_filt =nx.spring_layout(g_filtered)
 
-    # 1. Draw the actual graph
     fig, ax = plt.subplots()
-    nx.draw(g, pos, labels=labels, with_labels=True, node_size=150, font_color='black', ax=ax)
-    plt.savefig(original_filename, dpi=300)
-    plt.close()
+    nx.draw(g, pos, labels=labels, with_labels=True, node_color=node_colors, edge_color=edge_colors,
+            node_size=150, font_color='black', ax=ax, width=3)
+    plt.savefig(word, dpi=300)
+    plt.close
 
-    # 2. Draw the explainable subgraph
-    fig, ax = plt.subplots()
-    nx.draw(g, pos, labels=labels, with_labels=True, node_color=node_colors_filtered,
-            edge_color=edge_colors_filtered, node_size=150, font_color='black', ax=ax, width=3)
-    plt.savefig(explainable_filename, dpi=300)
-    plt.close()
-
-    # 3. Draw the filtered explainable subgraph
-    fig, ax = plt.subplots()
-    nx.draw(g_filtered, pos, labels=labels, with_labels=True, node_color=node_colors_filtered,
-            edge_color=edge_colors_filtered, node_size=150, font_color='black', ax=ax, width=3)
-    plt.savefig(filtered_filename, dpi=300)
-    plt.close()
-
-    if len(g_filtered.nodes) == 0 or len(g_filtered.edges) == 0:
-        print(f"No nodes or edges above average for graph {filtered_filename}")
-    return
-
+    nx.draw(g, pos, labels=labels, with_labels=True, node_size=150, ax=ax, width=2)
+    plt.savefig(word1, dpi=300)
+    plt.close
     
+    # Changing the Node_Mask to Important_Node_Mask 
+
+    print(f"Sample {i}:")
+    print("Actual node_mask",node_mask)
+    average_mask_value = np.mean(node_mask)
+    print("Average of node_mask",average_mask_value)
+
+       
+    for i,item in enumerate(node_mask):
+      if item<average_mask_value:
+        node_mask[i]=0.0
+    Imp_node_mask = node_mask
+    print("Important node_mask",Imp_node_mask)
+    Imp_node_mask_values = {i: value for i, value in enumerate(Imp_node_mask)}
+    nx.set_node_attributes(g, Imp_node_mask_values, 'value')
+
+  # Changing the Node_Mask to Important_Node_Mask 
+
+    print("Actual edge_mask",edge_values)
+    average_edge_value = np.mean(edge_values)
+    print("Average of edge_mask",average_edge_value)
+
+    for j,item1 in enumerate(edge_values):
+        if item1<average_edge_value:
+            edge_values[j]=0.0
+    Imp_edge_mask = edge_values
+    print("Important edge_mask",Imp_edge_mask)
+    # Reassign edge weights for significant edges
+    #Imp_edge_values = {tuple(edges[i]): edge_values[i] for i in Imp_edge_mask if edges[i][0] in g and edges[i][1] in g}
+    Imp_edge_values = explanation.edge_mask.numpy()
+    for i, (u, v) in enumerate(g.edges()):
+        g[u][v]['weight'] = Imp_edge_mask[i]
+    nx.set_edge_attributes(g, Imp_edge_values, 'weight')
+
+    g_filtered = nx.Graph(Imp_edge_values)
+
+    labels = set_labels(data.x)
+    node_values = np.array([data['value'] for _, data in g.nodes(data=True)])
+    edge_values = [(u, v) for u, v in g.edges() if u in Imp_node_mask_values and v in Imp_node_mask_values]
+    
+    node_norm = plt.Normalize(vmin=0, vmax=1)
+    edge_norm = plt.Normalize(vmin=0, vmax=1)
+
+    node_cmap = plt.cm.Blues
+    edge_cmap = plt.cm.Reds
+
+    node_colors = [node_cmap(node_norm(value)) for value in node_values]
+    edge_colors = [edge_cmap(edge_norm(weight)) for weight in edge_values]
+
+    pos = nx.spring_layout(g)
+
+    fig, ax = plt.subplots()
+    nx.draw(g_filtered, pos, labels=labels, with_labels=True, node_color=node_colors, edge_color=edge_colors,
+            node_size=150, font_color='black', ax=ax, width=3)
+    plt.savefig(word_filtered, dpi=300)
+    plt.close
+
+
+
+
 def predicting(model, device, loader):
     model.eval()
     total_preds = torch.Tensor()
     total_labels = torch.Tensor()
-
-    # Initialize the explainer
     explainer = Explainer(
-        model=model,
-        algorithm=GNNExplainer(epochs=200),
-        explanation_type='model',
-        node_mask_type='object',
-        edge_mask_type='object',
-        model_config=model_config,
-    )
+            model=model,
+            algorithm=GNNExplainer(epochs=200),
+            explanation_type='model',
+            node_mask_type='object',
+            edge_mask_type='object',
+            model_config=model_config,
+        )
+    print('Make prediction for {} samples...'.format(len(loader.dataset)))
+    i = 0
+    for data in loader:
+        if i<=1: 
+            i+=1
+            data = data.to(device)
+            output = model(data.x, data.edge_index, data)
+            total_preds = torch.cat((total_preds, output.cpu()), 0)
+            total_labels = torch.cat((total_labels, data.y.view(-1, 1).cpu()), 0)
 
-    print(f"Making predictions for {len(loader.dataset)} samples...")
-    i=0
-    for i, data in enumerate(loader):
-        if i >= 10:  # Limit the range of displayed graphs (adjust as needed)
-            break
-        #i+=1
-        data = data.to(device)
-        output = model(data.x, data.edge_index, data)
-
-        total_preds = torch.cat((total_preds, output.cpu()), 0)
-        total_labels = torch.cat((total_labels, data.y.view(-1, 1).cpu()), 0)
-
-        # Generate explanation for the current graph
-        explanation = explainer(
+            explanation = explainer(
             x=data.x,
             edge_index=data.edge_index,
-            data=data
-        )
+            data = data
+            )
+            # Calculate the average node mask value
+            node_mask = explanation.node_mask.squeeze().tolist()
+            average_mask_value = np.mean(node_mask)
+        
+            # print(explanation.node_mask)
+            # print(explanation.edge_mask)
+            
+            # Print actual and predicted node mask values
+            
 
-        # Generate file names for graph images
-        original_filename = f"orig_graph_{i + 1}.png"
-        explainable_filename = f"expl_graph_{i + 1}.png"
-        filtered_filename = f"filt_graph_{i + 1}.png"
+            word = "graph" + str(i) + ".png"
+            word1 = "oldgraph" + str(i) + ".png"
+            #word_p = "pat_graph" + str(i)+ ".png"
+            word_filtered = "filtered_graph" + str(i) + ".png"
+            try:
+                draw_graph(data, explanation, word, word1,word_filtered)
+            except:
+                continue
 
-        try:
-            # Draw and save the graphs
-            draw_graph(data, explanation, original_filename, explainable_filename, filtered_filename)
-        except Exception as e:
-            print(f"Error drawing graph {i + 1}: {e}")
-            continue
+        # Draw the filtered graph
+        #word_filtered = "filtered_graph" + str(i) + ".png"
+        #draw_filtered_graph(data, explanation, average_mask_value, word_filtered)
 
-    return total_labels.numpy().flatten(), total_preds.detach().numpy().flatten()
-
+    return total_labels.numpy().flatten(),total_preds.detach().numpy().flatten()
 
 
 datasets = ['kiba']

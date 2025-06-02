@@ -11,6 +11,7 @@ from torch_geometric.explain import Explainer, GNNExplainer, ModelConfig
 import networkx as nx
 import matplotlib.pyplot as plt
 import sys
+import numpy
 
 def set_labels(x):
     labels = []
@@ -63,145 +64,144 @@ def set_labels(x):
     label_dict = {i: value for i, value in enumerate(labels)}
     return label_dict
         
-def draw_graph(data, explanation, original_filename, explainable_filename, filtered_filename):
-    # Construct the graph from edge_index
+def draw_graph(data, explanation, word, word1):
     edges = []
     for i in range(len(data.edge_index[0])):
         edges.append([data.edge_index[0][i].item(), data.edge_index[1][i].item()])
     g = nx.Graph(edges)
 
-    # Extract node_mask and edge_mask values
+    # Extract node_mask and calculate the average
     node_mask = explanation.node_mask.squeeze().tolist()
-    edge_values = explanation.edge_mask.numpy()
+    print(f"Checking Node_mask: {node_mask}")  # Display node_mask
+    avg = numpy.average(node_mask)
+    print(f"Average of Node_mask: {avg}")  # Display average
 
-    print(f"Node Mask: {node_mask}")
-    print(f"Edge Mask: {edge_values}")
+    # Filter node_mask values: Keep only those >= average, set others to None (skip drawing)
+    filtered_node_mask_values = {i: (value if value >= avg else None) for i, value in enumerate(node_mask)}
+    print("Filtered Node Mask Values:", filtered_node_mask_values)
 
-    # Calculate average values
-    node_avg = np.mean(node_mask)
-    edge_avg = np.mean(edge_values)
-    print(f"Node Mask Average: {node_avg}")
-    print(f"Edge Mask Average: {edge_avg}")
-
-    # Assign node mask values as node attributes
+    # Set node attributes for the graph (skip those below average)
     nx.set_node_attributes(g, {i: value for i, value in enumerate(node_mask)}, 'value')
 
-    # Assign edge mask values as edge weights
+    # Set edge weights
+    edge_values = explanation.edge_mask.numpy()
     for i, (u, v) in enumerate(g.edges()):
         g[u][v]['weight'] = edge_values[i]
 
+    print(f"Checking edge_mask: {edge_values}")  # Display edge_mask
+    avged = numpy.average(edge_values)
+    print(f"Average of edge_mask: {avged}")  # Display average
     # Assign labels to nodes
     labels = set_labels(data.x)
 
-    # Filter nodes and edges for the explainable subgraph
-    filtered_nodes = [node for node, value in enumerate(node_mask) if value >= node_avg]
-    filtered_edges = [(u, v) for u, v in g.edges() if g[u][v]['weight'] >= edge_avg]
+    # Filter out nodes with values below average for the predicted graph
+    filtered_nodes = [node for node, value in filtered_node_mask_values.items() if value is not None]
 
-        # Create filtered subgraph
-    g_filtered = nx.Graph()
-    g_filtered.add_nodes_from(filtered_nodes)
-    g_filtered.add_edges_from(filtered_edges)
+    # Create a new subgraph with only the filtered nodes and edges
+    g_filtered = g.subgraph(filtered_nodes).copy()
 
-    # Prepare color maps for visualization
+    # Update node values for the filtered subgraph
+    node_values = [filtered_node_mask_values[node] for node in g_filtered.nodes()]
+
+    # Normalize node and edge values for coloring
     node_norm = plt.Normalize(vmin=0, vmax=1)
     edge_norm = plt.Normalize(vmin=0, vmax=1)
 
     node_cmap = plt.cm.Blues
     edge_cmap = plt.cm.Reds
 
-    # Node and edge colors for filtered subgraph
-    node_colors_filtered = [node_cmap(node_norm(node_mask[node])) for node in filtered_nodes]
-    edge_colors_filtered = [edge_cmap(edge_norm(g[u][v]['weight'])) for u, v in filtered_edges]
+    # Node and edge colors for predicted graph
+    node_colors_filtered = [node_cmap(node_norm(value)) for value in node_values]
+    edge_colors_filtered = [edge_cmap(edge_norm(g_filtered[u][v]['weight'])) for u, v in g_filtered.edges()]
 
-    node_values = np.array([data['value'] for _, data in g.nodes(data=True)])
+    # Node and edge colors for the original graph
+    node_colors_original = [node_cmap(node_norm(value)) for value in node_mask]
+    edge_colors_original = [edge_cmap(edge_norm(edge_values[i])) for i, (u, v) in enumerate(g.edges())]
 
-    node_colors_original = [node_cmap(node_norm(value)) for value in node_values]
-    # Reassign edge weights for significant edges
-    #edge_values = {tuple(edges[i]): edge_mask[i] for i in g.edges() if edges[i][0] in g and edges[i][1] in g}
-    #nx.set_edge_attributes(g, edge_values, 'weight')
-    #edge_colors_original = [edge_cmap(edge_norm(g[u][v]['weight'])) for u, v in edge_mask] #g.edges()
-    #edge_colors_original = [edge_cmap(edge_norm(g[u][v]['weight'])) for weight in edge_values] #g.edges()
-    edge_colors_original = [edge_cmap(edge_norm(g[u][v]['weight'])) for weight in edge_values] #g.edges()
+    pos = nx.spring_layout(g)  # Use the same layout for all graphs
 
-
-    # Use the same layout for all graphs
-    pos = nx.spring_layout(g)
-    #pos_filt =nx.spring_layout(g_filtered)
-
-    # 1. Draw the actual graph
+    # 1. Draw the original graph
     fig, ax = plt.subplots()
-    nx.draw(g, pos, labels=labels, with_labels=True, node_size=150, font_color='black', ax=ax)
-    plt.savefig(original_filename, dpi=300)
+    nx.draw(g_filtered, pos, labels=labels, with_labels=True, node_color=node_colors_original, edge_color=edge_colors_original,
+            node_size=150, font_color='black', ax=ax, width=3)
+    plt.savefig(f"GT_{word}", dpi=300)
     plt.close()
 
-    # 2. Draw the explainable subgraph
-    fig, ax = plt.subplots()
-    nx.draw(g, pos, labels=labels, with_labels=True, node_color=node_colors_filtered,
-            edge_color=edge_colors_filtered, node_size=150, font_color='black', ax=ax, width=3)
-    plt.savefig(explainable_filename, dpi=300)
-    plt.close()
-
-    # 3. Draw the filtered explainable subgraph
+    # 2. Draw the predicted graph (highlighted nodes and edges)
     fig, ax = plt.subplots()
     nx.draw(g_filtered, pos, labels=labels, with_labels=True, node_color=node_colors_filtered,
             edge_color=edge_colors_filtered, node_size=150, font_color='black', ax=ax, width=3)
-    plt.savefig(filtered_filename, dpi=300)
+    plt.savefig(f"pred_{word}", dpi=300)
     plt.close()
 
-    if len(g_filtered.nodes) == 0 or len(g_filtered.edges) == 0:
-        print(f"No nodes or edges above average for graph {filtered_filename}")
-    return
+    # 3. Draw the post-prediction graph (comparison)
+    fig, ax = plt.subplots()
+    nx.draw(g, pos, labels=labels, with_labels=True, node_size=150, ax=ax, width=2)
+    plt.savefig(f"post_pred_{word1}", dpi=300)
+    plt.close()
+        
 
-    
 def predicting(model, device, loader):
     model.eval()
     total_preds = torch.Tensor()
     total_labels = torch.Tensor()
-
-    # Initialize the explainer
     explainer = Explainer(
-        model=model,
-        algorithm=GNNExplainer(epochs=200),
-        explanation_type='model',
-        node_mask_type='object',
-        edge_mask_type='object',
-        model_config=model_config,
-    )
-
-    print(f"Making predictions for {len(loader.dataset)} samples...")
-    i=0
-    for i, data in enumerate(loader):
-        if i >= 10:  # Limit the range of displayed graphs (adjust as needed)
-            break
-        #i+=1
-        data = data.to(device)
-        output = model(data.x, data.edge_index, data)
-
-        total_preds = torch.cat((total_preds, output.cpu()), 0)
-        total_labels = torch.cat((total_labels, data.y.view(-1, 1).cpu()), 0)
-
-        # Generate explanation for the current graph
-        explanation = explainer(
-            x=data.x,
-            edge_index=data.edge_index,
-            data=data
+            model=model,
+            algorithm=GNNExplainer(epochs=200),
+            explanation_type='model',
+            node_mask_type='object',
+            edge_mask_type='object',
+            model_config=model_config,
         )
+    print('Make prediction for {} samples...'.format(len(loader.dataset)))
+    i = 0
+    for data in loader:
+        if i<=2:
+            i+=1
+            data = data.to(device)
+            output = model(data.x, data.edge_index, data)
+            total_preds = torch.cat((total_preds, output.cpu()), 0)
+            total_labels = torch.cat((total_labels, data.y.view(-1, 1).cpu()), 0)
 
-        # Generate file names for graph images
-        original_filename = f"orig_graph_{i + 1}.png"
-        explainable_filename = f"expl_graph_{i + 1}.png"
-        filtered_filename = f"filt_graph_{i + 1}.png"
+            explanation = explainer(
+                x=data.x,
+                edge_index=data.edge_index,
+                data = data
+            )
+                #print("Explanation node masks",explanation.node_mask)
+                #print("Explanation edge masks",explanation.edge_mask)
 
-        try:
-            # Draw and save the graphs
-            draw_graph(data, explanation, original_filename, explainable_filename, filtered_filename)
-        except Exception as e:
-            print(f"Error drawing graph {i + 1}: {e}")
-            continue
+            word = "graph_p" + str(i) + ".png"
+            word1 = "oldgraph_p" + str(i) + ".png"
 
-    return total_labels.numpy().flatten(), total_preds.detach().numpy().flatten()
+            try:
+                draw_graph(data, explanation, word, word1)
+            except:  #Exception as e
+                #print(f"Error drawing graph: {e}")
+                continue
+            # Compute the average node mask value
+            # node_mask = explanation.node_mask.squeeze().tolist()
+            # avg_node_mask = np.mean(node_mask)
+            # print(f"Graph {i}: Average Node Mask = {avg_node_mask}")
 
+            # # Handle below-average graphs
+            # if any(value < avg_node_mask for value in node_mask):
+            #     word = f"graph_below_avg_{i}.png"
+            #     word1 = f"oldgraph_below_avg_{i}.png"
+            #     try:
+            #         draw_graph(data, explanation, word, word1)
+            #     except:  # Exception as e
+            #         continue
 
+            # # Handle above-average graphs
+            # if any(value >= avg_node_mask for value in node_mask):
+            #     word = f"graph_above_avg_{i}.png"
+            #     word1 = f"oldgraph_above_avg_{i}.png"
+            #     try:
+            #         draw_graph(data, explanation, word, word1)
+            #     except:  # Exception as e
+            #         continue
+    return total_labels.numpy().flatten(),total_preds.detach().numpy().flatten()
 
 datasets = ['kiba']
 modelings = [GEN]
